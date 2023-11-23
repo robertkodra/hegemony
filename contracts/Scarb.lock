@@ -4,19 +4,20 @@ version = 1
 [[package]]
 name = "cubit"
 version = "1.2.0"
-source = "git+https://github.com/raphaelDkhn/cubit?rev=e6331eb#e6331ebf98c5d5f442a0e5edefe0b367c8e270d9"
+source = "git+https://github.com/influenceth/cubit#b4590530d5aeae9aabd36740cc2a3d9e6adc5fde"
 
 [[package]]
 name = "dojo"
-version = "0.3.2"
-source = "git+https://github.com/dojoengine/dojo?tag=v0.3.2#a0fa1ad96fb98c088be05da6178f43217891c8c6"
+version = "0.3.12"
+source = "git+https://github.com/dojoengine/dojo#b3f49977fe921564725c30b912126aea57859bbd"
 dependencies = [
  "dojo_plugin",
 ]
 
 [[package]]
 name = "dojo_plugin"
-version = "0.3.2"
+version = "0.3.12"
+source = "git+https://github.com/dojoengine/dojo?tag=v0.3.12#12d58f29ec53454317f1f6d265007a053d279288"
 
 [[package]]
 name = "hegemony"

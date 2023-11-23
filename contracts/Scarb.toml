@@ -1,5 +1,5 @@
 [package]
-cairo-version = "2.2.0"
+cairo-version = "2.3.0"
 name = "hegemony"
 version = "0.0.1"
 
@@ -7,8 +7,8 @@ version = "0.0.1"
 sierra-replace-ids = true
 
 [dependencies]
-cubit = { git = "https://github.com/raphaelDkhn/cubit", rev = "e6331eb" }
-dojo = { git = "https://github.com/dojoengine/dojo", tag = "v0.3.2" }
+cubit = { git = "https://github.com/influenceth/cubit" }
+dojo = { git = "https://github.com/dojoengine/dojo" }
 
 [[target.dojo]]
 
