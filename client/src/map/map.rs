@@ -1,19 +1,20 @@
 use crate::helpers::camera::movement as camera_movement;
-use bevy::{math::Vec4Swizzles, prelude::*};
+use bevy::{math::Vec4Swizzles, prelude::*, transform::commands};
 use bevy_ecs_tilemap::{helpers::hex_grid::offset::*, prelude::*};
+use rand::{thread_rng, Rng};
 
-const CHUNK_MAP_SIDE_LENGTH_X: u32 = 16;
-const CHUNK_MAP_SIDE_LENGTH_Y: u32 = 16;
+const CHUNK_MAP_SIDE_LENGTH_X: u32 = 2;
+const CHUNK_MAP_SIDE_LENGTH_Y: u32 = 2;
 
-const CHUNKS_X: i32 = 2;
-const CHUNKS_Y: i32 = 2;
+const CHUNKS_X: i32 = 8;
+const CHUNKS_Y: i32 = 8;
 
 const TILE_SIZE_HEX_ROW: TilemapTileSize = TilemapTileSize { x: 50.0, y: 58.0 };
 const TILE_SIZE_HEX_COL: TilemapTileSize = TilemapTileSize { x: 58.0, y: 50.0 };
 const GRID_SIZE_HEX_ROW: TilemapGridSize = TilemapGridSize { x: 50.0, y: 58.0 };
 const GRID_SIZE_HEX_COL: TilemapGridSize = TilemapGridSize { x: 58.0, y: 50.0 };
 
-const MAX_RADIUS: u32 = 6;
+const MAX_RADIUS: u32 = 3;
 
 pub struct MapPlugin;
 
@@ -22,7 +23,6 @@ impl Plugin for MapPlugin {
         app.add_plugins(TilemapPlugin)
             .init_resource::<CursorPos>()
             .init_resource::<HighlightRadius>()
-            .init_resource::<TileHandleHexCol>()
             .init_resource::<TileHandleHexRow>()
             .init_resource::<FontHandle>()
             .add_systems(
@@ -33,32 +33,25 @@ impl Plugin for MapPlugin {
             )
             .add_systems(Startup, spawn_tile_labels.after(SpawnChunksSet))
             .add_systems(First, (camera_movement, update_cursor_pos).chain())
-            .add_systems(Update, swap_map_type)
-            .add_systems(Update, hover_highlight_tile_label.after(swap_map_type))
+            .add_systems(Update, hover_highlight_tile_label)
             .add_systems(Update, update_radius.after(hover_highlight_tile_label))
-            .add_systems(Update, highlight_neighbor_labels.after(update_radius));
+            .add_systems(Update, highlight_neighbor_labels.after(update_radius))
+            .add_systems(Update, spawn_player);
     }
 }
 #[derive(Deref, Resource)]
 pub struct TileHandleHexRow(Handle<Image>);
 
 #[derive(Deref, Resource)]
-pub struct TileHandleHexCol(Handle<Image>);
-#[derive(Deref, Resource)]
 pub struct FontHandle(Handle<Font>);
 
 #[derive(SystemSet, Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct SpawnChunksSet;
-impl FromWorld for TileHandleHexCol {
-    fn from_world(world: &mut World) -> Self {
-        let asset_server = world.resource::<AssetServer>();
-        Self(asset_server.load("bw-tile-hex-col.png"))
-    }
-}
+
 impl FromWorld for TileHandleHexRow {
     fn from_world(world: &mut World) -> Self {
         let asset_server = world.resource::<AssetServer>();
-        Self(asset_server.load("bw-tile-hex-row.png"))
+        Self(asset_server.load("row.png"))
     }
 }
 impl FromWorld for FontHandle {
@@ -71,6 +64,7 @@ impl FromWorld for FontHandle {
 #[derive(Deref, Component, Clone, Copy)]
 pub struct ChunkPos(IVec2);
 
+// calculates the world position of a chunk in a tilemap
 fn chunk_in_world_position(pos: IVec2, map_type: TilemapType) -> Vec3 {
     let tile_size = match map_type {
         TilemapType::Hexagon(HexCoordSystem::RowEven)
@@ -86,6 +80,7 @@ fn chunk_in_world_position(pos: IVec2, map_type: TilemapType) -> Vec3 {
         | TilemapType::Hexagon(HexCoordSystem::ColumnOdd) => GRID_SIZE_HEX_COL,
         _ => unreachable!(),
     };
+
     if matches!(
         map_type,
         TilemapType::Hexagon(HexCoordSystem::RowEven)
@@ -121,6 +116,7 @@ fn chunk_in_world_position(pos: IVec2, map_type: TilemapType) -> Vec3 {
     }
 }
 
+// calculates the hexagonal position of a tile in a tilemap.
 fn hex_pos_from_tile_pos(
     tile_pos: &TilePos,
     grid_size: &TilemapGridSize,
@@ -150,6 +146,7 @@ fn hex_pos_from_tile_pos(
     }
 }
 
+// calculates the hexagonal positions of all tiles within a certain radius of a given tile in a tilemap
 fn hex_neighbors_radius(hex_pos: IVec2, radius: u32, map_type: &TilemapType) -> Vec<IVec2> {
     let neighbors = generate_hexagon(
         match map_type {
@@ -213,6 +210,7 @@ fn hex_neighbors_radius_from_tile_pos(
 }
 
 fn spawn_chunks(mut commands: Commands, tile_handle_hex_row: Res<TileHandleHexRow>) {
+    // default 16x16
     let map_size = TilemapSize {
         x: CHUNK_MAP_SIDE_LENGTH_X,
         y: CHUNK_MAP_SIDE_LENGTH_Y,
@@ -225,6 +223,7 @@ fn spawn_chunks(mut commands: Commands, tile_handle_hex_row: Res<TileHandleHexRo
     // Makes it so chunks spawn around the world center
     let lower_bound_x = -(CHUNKS_X / 2);
     let lower_bound_y = -(CHUNKS_Y / 2);
+    let mut random = thread_rng();
     for chunk_x in lower_bound_x..(CHUNKS_X + lower_bound_x) {
         for chunk_y in lower_bound_y..(CHUNKS_Y + lower_bound_y) {
             let chunk_pos = ChunkPos(IVec2 {
@@ -236,8 +235,14 @@ fn spawn_chunks(mut commands: Commands, tile_handle_hex_row: Res<TileHandleHexRo
             let tilemap_entity = commands.spawn_empty().id();
             let tilemap_id = TilemapId(tilemap_entity);
 
+            let chance = 25; // how much water to generate
+            let index = if random.gen_range(1..100) < chance {
+                2 // water
+            } else {
+                1 // grass
+            };
             fill_tilemap(
-                TileTextureIndex(0),
+                TileTextureIndex(index),
                 map_size,
                 tilemap_id,
                 &mut commands,
@@ -263,87 +268,10 @@ fn spawn_chunks(mut commands: Commands, tile_handle_hex_row: Res<TileHandleHexRo
     }
 }
 
-fn swap_map_type(
-    mut tilemap_query: Query<(
-        &mut Transform,
-        &mut TilemapType,
-        &mut TilemapGridSize,
-        &mut TilemapTexture,
-        &mut TilemapTileSize,
-        &TileStorage,
-        &ChunkPos,
-    )>,
-    keyboard_input: Res<Input<KeyCode>>,
-    tile_label_q: Query<(Entity, &TileLabel, &TilePos), Without<TilemapType>>,
-    mut transform_q: Query<(&mut Transform, &mut Text), Without<TilemapType>>,
-    tile_handle_hex_row: Res<TileHandleHexRow>,
-    tile_handle_hex_col: Res<TileHandleHexCol>,
-) {
-    if keyboard_input.just_pressed(KeyCode::Space) {
-        for (
-            mut map_transform,
-            mut map_type,
-            mut grid_size,
-            mut map_texture,
-            mut tile_size,
-            tile_storage,
-            chunk_pos,
-        ) in tilemap_query.iter_mut()
-        {
-            match map_type.as_ref() {
-                TilemapType::Hexagon(HexCoordSystem::RowEven) => {
-                    *map_type = TilemapType::Hexagon(HexCoordSystem::RowOdd)
-                }
-                TilemapType::Hexagon(HexCoordSystem::RowOdd) => {
-                    *map_type = TilemapType::Hexagon(HexCoordSystem::ColumnEven);
-                    *map_texture = TilemapTexture::Single((*tile_handle_hex_col).clone());
-                    *tile_size = TILE_SIZE_HEX_COL;
-                    *grid_size = GRID_SIZE_HEX_COL;
-                }
-                TilemapType::Hexagon(HexCoordSystem::ColumnEven) => {
-                    *map_type = TilemapType::Hexagon(HexCoordSystem::ColumnOdd);
-                }
-                TilemapType::Hexagon(HexCoordSystem::ColumnOdd) => {
-                    *map_type = TilemapType::Hexagon(HexCoordSystem::RowEven);
-                    *map_texture = TilemapTexture::Single((*tile_handle_hex_row).clone());
-                    *tile_size = TILE_SIZE_HEX_ROW;
-                    *grid_size = GRID_SIZE_HEX_ROW;
-                }
-                _ => unreachable!(),
-            }
-
-            *map_transform =
-                Transform::from_translation(chunk_in_world_position(**chunk_pos, *map_type));
-
-            for (tile_entity, label, tile_pos) in tile_label_q.iter() {
-                if let Ok((mut tile_label_transform, mut tile_label_text)) =
-                    transform_q.get_mut(label.0)
-                {
-                    if let Some(ent) = tile_storage.checked_get(tile_pos) {
-                        if ent == tile_entity {
-                            let tile_center =
-                                tile_pos.center_in_world(&grid_size, &map_type).extend(1.0);
-                            *tile_label_transform =
-                                *map_transform * Transform::from_translation(tile_center);
-                            let hex_pos = hex_pos_from_tile_pos(
-                                tile_pos,
-                                &grid_size,
-                                &map_type,
-                                &map_transform,
-                            );
-                            tile_label_text.sections.get_mut(0).unwrap().value =
-                                format!("{}, {}", hex_pos.x, hex_pos.y);
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 #[derive(Component)]
 struct TileLabel(Entity);
 
+// spawning the coord label for the hexes
 fn spawn_tile_labels(
     mut commands: Commands,
     tilemap_q: Query<(&Transform, &TilemapType, &TilemapGridSize, &TileStorage)>,
@@ -383,7 +311,25 @@ fn spawn_tile_labels(
 }
 
 #[derive(Component)]
-struct Hovered;
+pub struct Hovered;
+
+#[derive(Component)]
+pub struct Player {
+    player_id: u8,
+}
+
+#[derive(Component)]
+pub struct TileInfo {
+    tile: TileType,
+    player_id: u8,
+}
+
+enum TileType {
+    Water,
+    Coast,
+    Land,
+    Base,
+}
 
 #[derive(Resource)]
 pub struct CursorPos(Vec2);
@@ -441,6 +387,7 @@ fn hover_highlight_tile_label(
 
     for (map_size, grid_size, map_type, tile_storage, map_transform) in tilemap_q.iter() {
         let cursor_pos = cursor_pos.0;
+
         let cursor_pos_in_map_pos = {
             let cursor_pos = Vec4::from((cursor_pos, 0.0, 1.0));
             let cursor_in_map_pos = map_transform.compute_matrix().inverse() * cursor_pos;
@@ -463,11 +410,12 @@ fn hover_highlight_tile_label(
     }
 }
 
+// set initial radius highlight
 #[derive(Deref, Resource)]
-struct HighlightRadius(u32);
+pub struct HighlightRadius(u32);
 impl Default for HighlightRadius {
     fn default() -> Self {
-        Self(2)
+        Self(1)
     }
 }
 
@@ -537,6 +485,87 @@ fn highlight_neighbor_labels(
                                     section.style.color = Color::BLUE;
                                 }
                                 commands.entity(*tile_entity).insert(NeighborHighlight);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn spawn_player(
+    mut commands: Commands,
+    tilemap_q: Query<(
+        &TilemapSize,
+        &TilemapGridSize,
+        &TilemapType,
+        &TileStorage,
+        &Transform,
+    )>,
+    cursor_pos: Res<CursorPos>,
+    input: Res<Input<MouseButton>>,
+    texture_index: Query<&TileTextureIndex>,
+    tiles_q: Query<&TilePos, Without<Player>>,
+    radius: Res<HighlightRadius>,
+) {
+    if input.just_released(MouseButton::Left) {
+        for (map_size, grid_size, map_type, tile_storage, map_transform) in tilemap_q.iter() {
+            let cursor_pos = cursor_pos.0;
+            let cursor_pos_in_map_pos = {
+                let cursor_pos = Vec4::from((cursor_pos, 0.0, 1.0));
+                let cursor_in_map_pos = map_transform.compute_matrix().inverse() * cursor_pos;
+                cursor_in_map_pos.xy()
+            };
+            if let Some(tile_pos) =
+                TilePos::from_world_pos(&cursor_pos_in_map_pos, map_size, grid_size, map_type)
+            {
+                if let Some(tile_entity) = tile_storage.get(&tile_pos) {
+                    // check if that position is not water
+                    if let Ok(tile_texture_index) = texture_index.get(tile_entity) {
+                        if tile_texture_index.0 == 1 {
+                            commands
+                                .entity(tile_entity)
+                                .insert(TileTextureIndex(5))
+                                .insert(TileInfo {
+                                    tile: TileType::Base,
+                                    player_id: 1,
+                                })
+                                .insert(Player { player_id: 1 });
+
+                            let neighbors = Some(hex_neighbors_radius_from_tile_pos(
+                                &tile_pos,
+                                grid_size,
+                                map_type,
+                                map_transform,
+                                **radius,
+                            ));
+
+                            if let Some(neighbors) = neighbors {
+                                for (_, grid_size, map_type, tile_storage, map_transform) in
+                                    tilemap_q.iter()
+                                {
+                                    for tile_entity_neighbour in tile_storage.iter().flatten() {
+                                        if let Ok(tile_pos) = tiles_q.get(*tile_entity_neighbour) {
+                                            let tile_hex_pos = hex_pos_from_tile_pos(
+                                                tile_pos,
+                                                grid_size,
+                                                map_type,
+                                                map_transform,
+                                            );
+                                            if neighbors.contains(&tile_hex_pos) {
+                                                commands
+                                                    .entity(*tile_entity_neighbour)
+                                                    .insert(TileTextureIndex(5))
+                                                    .insert(TileInfo {
+                                                        tile: TileType::Base,
+                                                        player_id: 1,
+                                                    })
+                                                    .insert(Player { player_id: 1 });
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
