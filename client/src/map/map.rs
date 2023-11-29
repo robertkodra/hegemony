@@ -2,7 +2,8 @@ use crate::helpers::camera::movement as camera_movement;
 use bevy::{math::Vec4Swizzles, prelude::*, transform::commands};
 use bevy_ecs_tilemap::{helpers::hex_grid::offset::*, prelude::*};
 use rand::{thread_rng, Rng};
-
+use starknet::providers::sequencer::models::AddTransactionResultCode;
+use std::dbg;
 const CHUNK_MAP_SIDE_LENGTH_X: u32 = 2;
 const CHUNK_MAP_SIDE_LENGTH_Y: u32 = 2;
 
@@ -318,12 +319,13 @@ pub struct Player {
     player_id: u8,
 }
 
-#[derive(Component)]
+#[derive(Component, Debug)]
 pub struct TileInfo {
     tile: TileType,
     player_id: u8,
 }
 
+#[derive(Debug)]
 enum TileType {
     Water,
     Coast,
@@ -508,6 +510,7 @@ fn spawn_player(
     texture_index: Query<&TileTextureIndex>,
     tiles_q: Query<&TilePos, Without<Player>>,
     radius: Res<HighlightRadius>,
+    tile_info: Query<&TileInfo>,
 ) {
     if input.just_released(MouseButton::Left) {
         for (map_size, grid_size, map_type, tile_storage, map_transform) in tilemap_q.iter() {
@@ -521,6 +524,10 @@ fn spawn_player(
                 TilePos::from_world_pos(&cursor_pos_in_map_pos, map_size, grid_size, map_type)
             {
                 if let Some(tile_entity) = tile_storage.get(&tile_pos) {
+                    if let Ok(tile_info_res) = tile_info.get(tile_entity) {
+                        dbg!(&tile_info_res.tile);
+                        println!("---")
+                    }
                     // check if that position is not water
                     if let Ok(tile_texture_index) = texture_index.get(tile_entity) {
                         if tile_texture_index.0 == 1 {
